@@ -2,6 +2,28 @@ import React, { useEffect, useState } from 'react'
 
 const money = (n) => `NT$${Number(n).toLocaleString()}`
 
+const ROLES = [
+  { id: 'organizer', label: '廠商', sublabel: '主辦方' },
+  { id: 'vendor', label: '攤商', sublabel: '攤位主' },
+  { id: 'platform', label: 'ClimateGuard', sublabel: '平台總覽' }
+]
+
+const ROLE_TABS = {
+  organizer: [
+    ['create-event', '建立活動'],
+    ['my-events', '我的活動']
+  ],
+  vendor: [
+    ['join-plan', '加入方案'],
+    ['my-policies', '我的保單']
+  ],
+  platform: [
+    ['dashboard', 'Dashboard'],
+    ['oracle', 'Oracle / Payout'],
+    ['dao', 'DAO 治理']
+  ]
+}
+
 function StatCard({ label, value, note }) {
   return (
     <div className="card stat-card">
@@ -29,6 +51,7 @@ function Section({ title, subtitle, children }) {
 }
 
 export default function App() {
+  const [role, setRole] = useState('platform')
   const [tab, setTab] = useState('dashboard')
   const [events, setEvents] = useState([])
   const [policies, setPolicies] = useState([])
@@ -46,7 +69,9 @@ export default function App() {
   const [rainfall, setRainfall] = useState(230)
   const [selectedEventId, setSelectedEventId] = useState(1)
   const [loading, setLoading] = useState(false)
+  const [initLoading, setInitLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [success, setSuccess] = useState(null)
 
   const [eventForm, setEventForm] = useState({
     name: '河濱週末市集',
@@ -65,12 +90,23 @@ export default function App() {
   const [proposalForm, setProposalForm] = useState({ threshold: 200 })
 
   useEffect(() => {
-    fetchEvents()
-    fetchPolicies()
-    fetchPoolStats()
-    fetchPayouts()
-    fetchPlans()
-    fetchProposals()
+    async function init() {
+      try {
+        await Promise.all([
+          fetchEvents(),
+          fetchPolicies(),
+          fetchPoolStats(),
+          fetchPayouts(),
+          fetchPlans(),
+          fetchProposals()
+        ])
+      } catch (e) {
+        setError('資料載入失敗，請確認後端服務是否啟動。')
+      } finally {
+        setInitLoading(false)
+      }
+    }
+    init()
   }, [])
 
   async function fetchEvents() {
@@ -110,16 +146,46 @@ export default function App() {
     setProposals(json.data)
   }
 
+  function showSuccess(msg) {
+    setSuccess(msg)
+    setTimeout(() => setSuccess(null), 3000)
+  }
+
+  function switchRole(newRole) {
+    setRole(newRole)
+    setTab(ROLE_TABS[newRole][0][0])
+    setError(null)
+    setSuccess(null)
+  }
+
+  function calcEventPool(eventId) {
+    const event = events.find((e) => e.id === eventId)
+    if (!event) return null
+    const eventPolicies = policies.filter((p) => p.eventId === eventId)
+    const vendorContributions = eventPolicies.reduce((s, p) => s + Number(p.contribution), 0)
+    const totalPaidOut = eventPolicies.reduce((s, p) => s + Number(p.paidOut), 0)
+    const poolBalance = Number(event.organizerContribution) + vendorContributions - totalPaidOut
+    const totalActiveCoverage = eventPolicies
+      .filter((p) => p.status === 'Active')
+      .reduce((s, p) => s + Number(p.coverage), 0)
+    const poolHealth = totalActiveCoverage > 0
+      ? Math.round((poolBalance / totalActiveCoverage) * 100)
+      : 0
+    const poolHealthLabel = poolHealth >= 120 ? 'Healthy' : poolHealth >= 80 ? 'Warning' : 'Underfunded'
+    const poolHealthType = poolHealth >= 120 ? 'success' : poolHealth >= 80 ? 'warning' : 'danger'
+    const activeVendors = eventPolicies.filter((p) => p.status === 'Active').length
+    return { poolBalance, totalActiveCoverage, poolHealth, poolHealthLabel, poolHealthType, activeVendors }
+  }
+
   const selectedEvent = events.find((e) => e.id === Number(selectedEventId)) || events[0]
   const eligiblePolicies = policies.filter(
     (p) => p.eventId === Number(selectedEventId) && p.status === 'Active'
   )
-  const poolHealthType =
-    poolStats.poolHealth >= 120 ? 'success' : poolStats.poolHealth >= 80 ? 'warning' : 'danger'
 
   async function createEvent() {
     setLoading(true)
     setError(null)
+    setSuccess(null)
     try {
       const res = await fetch('/api/events', {
         method: 'POST',
@@ -132,7 +198,7 @@ export default function App() {
       setSelectedEventId(json.data.id)
       setVendorForm({ ...vendorForm, eventId: json.data.id })
       await fetchPoolStats()
-      setTab('dashboard')
+      showSuccess(`活動「${json.data.name}」建立成功！`)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -143,6 +209,7 @@ export default function App() {
   async function joinPlan() {
     setLoading(true)
     setError(null)
+    setSuccess(null)
     try {
       const res = await fetch('/api/policies', {
         method: 'POST',
@@ -153,7 +220,7 @@ export default function App() {
       if (!json.success) throw new Error(json.message)
       setPolicies([...policies, json.data])
       await fetchPoolStats()
-      setTab('dashboard')
+      showSuccess(`${json.data.vendor} 已成功加入 ${json.data.plan} 方案！`)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -164,6 +231,7 @@ export default function App() {
   async function triggerPayout() {
     setLoading(true)
     setError(null)
+    setSuccess(null)
     try {
       const res = await fetch('/api/oracle/trigger', {
         method: 'POST',
@@ -173,6 +241,7 @@ export default function App() {
       const json = await res.json()
       if (!json.success) throw new Error(json.message)
       await Promise.all([fetchPolicies(), fetchPayouts(), fetchPoolStats()])
+      showSuccess('Oracle 執行完成！')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -183,6 +252,7 @@ export default function App() {
   async function createProposal() {
     setLoading(true)
     setError(null)
+    setSuccess(null)
     try {
       const res = await fetch('/api/dao/proposals', {
         method: 'POST',
@@ -197,6 +267,7 @@ export default function App() {
       const json = await res.json()
       if (!json.success) throw new Error(json.message)
       await fetchProposals()
+      showSuccess('提案已送出！')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -207,6 +278,7 @@ export default function App() {
   async function voteYes(proposalId) {
     setLoading(true)
     setError(null)
+    setSuccess(null)
     try {
       const res = await fetch(`/api/dao/proposals/${proposalId}/vote`, {
         method: 'POST',
@@ -216,6 +288,7 @@ export default function App() {
       const json = await res.json()
       if (!json.success) throw new Error(json.message)
       await fetchProposals()
+      showSuccess('投票成功！')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -226,6 +299,7 @@ export default function App() {
   async function executeProposal(proposalId) {
     setLoading(true)
     setError(null)
+    setSuccess(null)
     try {
       const res = await fetch(`/api/dao/proposals/${proposalId}/execute`, {
         method: 'POST',
@@ -234,6 +308,7 @@ export default function App() {
       const json = await res.json()
       if (!json.success) throw new Error(json.message)
       await Promise.all([fetchProposals(), fetchEvents(), fetchPoolStats()])
+      showSuccess('提案執行成功！')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -241,13 +316,13 @@ export default function App() {
     }
   }
 
-  const tabs = [
-    ['dashboard', 'Dashboard'],
-    ['event', '建立活動'],
-    ['join', '加入方案'],
-    ['oracle', 'Oracle / Payout'],
-    ['dao', 'DAO 治理']
-  ]
+  if (initLoading) {
+    return (
+      <div className="app">
+        <div className="init-loading">資料載入中...</div>
+      </div>
+    )
+  }
 
   return (
     <div className="app">
@@ -257,11 +332,22 @@ export default function App() {
           <h1>ClimateGuard DAO</h1>
           <p>戶外活動氣候風險的 Web3 指數型互助池</p>
         </div>
-        <button className="primary-btn">Connect Wallet</button>
+        <div className="role-switcher">
+          {ROLES.map((r) => (
+            <button
+              key={r.id}
+              className={`role-btn${role === r.id ? ' active' : ''}`}
+              onClick={() => switchRole(r.id)}
+            >
+              <span className="role-label">{r.label}</span>
+              <span className="role-sublabel">{r.sublabel}</span>
+            </button>
+          ))}
+        </div>
       </header>
 
       <nav className="tabs">
-        {tabs.map(([id, label]) => (
+        {ROLE_TABS[role].map(([id, label]) => (
           <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>
             {label}
           </button>
@@ -269,63 +355,10 @@ export default function App() {
       </nav>
 
       {error && <div className="error-banner">{error}</div>}
+      {success && <div className="success-banner">{success}</div>}
 
-      {tab === 'dashboard' && (
-        <>
-          <div className="grid four">
-            <StatCard label="Pool Balance" value={money(poolStats.poolBalance)} note="目前 smart contract pool 餘額" />
-            <StatCard label="Active Coverage" value={money(poolStats.totalActiveCoverage)} note="目前有效保障總額" />
-            <StatCard label="Pool Health" value={`${poolStats.poolHealth}%`} note={poolStats.poolHealthLabel} />
-            <StatCard label="Active Vendors" value={poolStats.activeVendors} note="目前仍在保障中的攤商" />
-          </div>
-
-          <div className="grid three">
-            <Section title="Pool Health Status" subtitle="用來判斷資金池是否足以支撐目前保障額度。">
-              <div className="health-box">
-                <Badge type={poolHealthType}>{poolStats.poolHealthLabel}</Badge>
-                <strong>{poolStats.poolHealth}%</strong>
-              </div>
-              <div className="progress">
-                <div style={{ width: `${Math.min(poolStats.poolHealth, 160) / 1.6}%` }} />
-              </div>
-              <p className="hint">
-                Pool Health Ratio = Available Pool Balance / Total Active Coverage。
-              </p>
-            </Section>
-
-            <Section title="Active Events" subtitle="目前加入 ClimateGuard pool 的戶外活動。">
-              {events.map((event) => (
-                <div className="list-item" key={event.id}>
-                  <div>
-                    <strong>{event.name}</strong>
-                    <p>{event.location} · {event.date}</p>
-                    <p>Rainfall threshold: {event.threshold}mm</p>
-                  </div>
-                  <Badge type="info">{event.status}</Badge>
-                </div>
-              ))}
-            </Section>
-
-            <Section title="Recent Payout History" subtitle="觸發補償後會留下 payout record。">
-              {payoutHistory.length === 0 ? (
-                <p className="empty">尚未有 payout record。</p>
-              ) : (
-                payoutHistory.slice(0, 5).map((p) => (
-                  <div className="list-item" key={p.id}>
-                    <div>
-                      <strong>{p.vendor || p.eventName}</strong>
-                      <p>Rainfall {p.rainfall}mm / Threshold {p.threshold}mm</p>
-                    </div>
-                    <Badge type={p.amount > 0 ? 'success' : 'default'}>{money(p.amount)}</Badge>
-                  </div>
-                ))
-              )}
-            </Section>
-          </div>
-        </>
-      )}
-
-      {tab === 'event' && (
+      {/* ── 廠商：建立活動 ── */}
+      {tab === 'create-event' && (
         <Section title="建立戶外活動" subtitle="主辦方建立活動，並投入 organizer contribution 到 smart contract pool。">
           <div className="form-grid">
             <label>活動名稱<input value={eventForm.name} onChange={(e) => setEventForm({ ...eventForm, name: e.target.value })} /></label>
@@ -340,7 +373,81 @@ export default function App() {
         </Section>
       )}
 
-      {tab === 'join' && (
+      {/* ── 廠商：我的活動 ── */}
+      {tab === 'my-events' && (
+        <Section title="我的活動" subtitle="查看已建立的活動、各活動的獨立資金池狀態，以及加入的攤商。">
+          {events.length === 0 ? (
+            <p className="empty">尚未建立任何活動。</p>
+          ) : (
+            events.map((event) => {
+              const eventPolicies = policies.filter((p) => p.eventId === event.id)
+              const pool = calcEventPool(event.id)
+              return (
+                <div className="event-card" key={event.id}>
+                  <div className="event-card-header">
+                    <div>
+                      <strong>{event.name}</strong>
+                      <p>{event.location} · {event.date} · Threshold: {event.threshold}mm</p>
+                      <p>Organizer Contribution: {money(event.organizerContribution)}</p>
+                    </div>
+                    <Badge type="info">{event.status}</Badge>
+                  </div>
+
+                  {pool && (
+                    <div className="event-pool-section">
+                      <p className="pool-section-title">資金池狀態</p>
+                      <div className="pool-stats-row">
+                        <div className="pool-stat">
+                          <span>Pool Balance</span>
+                          <strong>{money(pool.poolBalance)}</strong>
+                        </div>
+                        <div className="pool-stat">
+                          <span>Coverage</span>
+                          <strong>{money(pool.totalActiveCoverage)}</strong>
+                        </div>
+                        <div className="pool-stat">
+                          <span>Vendors</span>
+                          <strong>{pool.activeVendors}</strong>
+                        </div>
+                        <div className="pool-stat">
+                          <span>Health</span>
+                          <strong>{pool.poolHealth}%</strong>
+                        </div>
+                      </div>
+                      <div className="health-row">
+                        <div className="progress" style={{ flex: 1 }}>
+                          <div style={{ width: `${Math.min(pool.poolHealth, 160) / 1.6}%` }} />
+                        </div>
+                        <Badge type={pool.poolHealthType}>{pool.poolHealthLabel}</Badge>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="event-card-body">
+                    <p className="vendors-title">加入攤商（{eventPolicies.length}）</p>
+                    {eventPolicies.length === 0 ? (
+                      <p className="empty">尚未有攤商加入。</p>
+                    ) : (
+                      eventPolicies.map((p) => (
+                        <div className="list-item" key={p.id}>
+                          <div>
+                            <strong>{p.vendor}</strong>
+                            <p>{p.plan} · Coverage {money(p.coverage)}</p>
+                          </div>
+                          <Badge type={p.status === 'Active' ? 'success' : 'default'}>{p.status}</Badge>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </Section>
+      )}
+
+      {/* ── 攤商：加入方案 ── */}
+      {tab === 'join-plan' && (
         <Section title="攤商加入 Weather Protection Plan" subtitle="攤商支付小額 contribution，取得較高的氣候風險保障額度。">
           <div className="form-grid">
             <label>攤商名稱<input value={vendorForm.vendor} onChange={(e) => setVendorForm({ ...vendorForm, vendor: e.target.value })} /></label>
@@ -352,17 +459,21 @@ export default function App() {
           </div>
 
           <div className="plan-grid">
-            {plans.map((plan) => (
-              <button
-                key={plan.id}
-                className={vendorForm.plan === plan.id ? 'plan selected' : 'plan'}
-                onClick={() => setVendorForm({ ...vendorForm, plan: plan.id })}
-              >
-                <strong>{plan.name}</strong>
-                <p>{plan.desc}</p>
-                <span>Pay {money(plan.contribution)} · Coverage {money(plan.coverage)}</span>
-              </button>
-            ))}
+            {plans.length === 0 ? (
+              <p className="empty">方案載入中...</p>
+            ) : (
+              plans.map((plan) => (
+                <button
+                  key={plan.id}
+                  className={vendorForm.plan === plan.id ? 'plan selected' : 'plan'}
+                  onClick={() => setVendorForm({ ...vendorForm, plan: plan.id })}
+                >
+                  <strong>{plan.name}</strong>
+                  <p>{plan.desc}</p>
+                  <span>Pay {money(plan.contribution)} · Coverage {money(plan.coverage)}</span>
+                </button>
+              ))
+            )}
           </div>
 
           <button className="primary-btn" onClick={joinPlan} disabled={loading}>
@@ -371,6 +482,118 @@ export default function App() {
         </Section>
       )}
 
+      {/* ── 攤商：我的保單 ── */}
+      {tab === 'my-policies' && (
+        <Section title="我的保單" subtitle="查看目前保障狀態與理賠紀錄。">
+          {policies.length === 0 ? (
+            <p className="empty">尚未加入任何方案。</p>
+          ) : (
+            policies.map((p) => {
+              const event = events.find((e) => e.id === p.eventId)
+              return (
+                <div className="list-item" key={p.id}>
+                  <div>
+                    <strong>{p.vendor}</strong>
+                    <p>{event?.name || `活動 #${p.eventId}`} · {p.plan}</p>
+                    <p>Contribution {money(p.contribution)} · Coverage {money(p.coverage)}</p>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <Badge type={p.status === 'Active' ? 'success' : p.status === 'Paid' ? 'warning' : 'default'}>
+                      {p.status}
+                    </Badge>
+                    {p.paidOut > 0 && <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#666' }}>理賠 {money(p.paidOut)}</p>}
+                  </div>
+                </div>
+              )
+            })
+          )}
+
+          <h3 style={{ marginTop: '1.5rem' }}>理賠紀錄</h3>
+          {payoutHistory.length === 0 ? (
+            <p className="empty">尚未有理賠紀錄。</p>
+          ) : (
+            payoutHistory.slice(0, 10).map((p) => (
+              <div className="list-item" key={p.id}>
+                <div>
+                  <strong>{p.vendor || p.eventName}</strong>
+                  <p>Rainfall {p.rainfall}mm / Threshold {p.threshold}mm</p>
+                </div>
+                <Badge type={p.amount > 0 ? 'success' : 'default'}>{money(p.amount)}</Badge>
+              </div>
+            ))
+          )}
+        </Section>
+      )}
+
+      {/* ── ClimateGuard：Dashboard ── */}
+      {tab === 'dashboard' && (
+        <>
+          <div className="section-title-row">
+            <h2>各活動資金池</h2>
+          </div>
+          <div className="grid two">
+            {events.map((event) => {
+              const pool = calcEventPool(event.id)
+              if (!pool) return null
+              return (
+                <div className="card event-pool-card" key={event.id}>
+                  <div className="event-pool-card-head">
+                    <div>
+                      <strong>{event.name}</strong>
+                      <p>{event.location} · {event.date} · Threshold {event.threshold}mm</p>
+                    </div>
+                    <Badge type="info">{event.status}</Badge>
+                  </div>
+                  <div className="pool-stats-row">
+                    <div className="pool-stat">
+                      <span>Pool Balance</span>
+                      <strong>{money(pool.poolBalance)}</strong>
+                    </div>
+                    <div className="pool-stat">
+                      <span>Coverage</span>
+                      <strong>{money(pool.totalActiveCoverage)}</strong>
+                    </div>
+                    <div className="pool-stat">
+                      <span>Vendors</span>
+                      <strong>{pool.activeVendors}</strong>
+                    </div>
+                    <div className="pool-stat">
+                      <span>Health</span>
+                      <strong>{pool.poolHealth}%</strong>
+                    </div>
+                  </div>
+                  <div className="health-box" style={{ marginTop: '14px' }}>
+                    <Badge type={pool.poolHealthType}>{pool.poolHealthLabel}</Badge>
+                    <strong>{pool.poolHealth}%</strong>
+                  </div>
+                  <div className="progress">
+                    <div style={{ width: `${Math.min(pool.poolHealth, 160) / 1.6}%` }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* 最近理賠紀錄 */}
+          <Section title="Recent Payout History" subtitle="觸發補償後會留下 payout record。">
+            {payoutHistory.length === 0 ? (
+              <p className="empty">尚未有 payout record。</p>
+            ) : (
+              payoutHistory.slice(0, 5).map((p) => (
+                <div className="list-item" key={p.id}>
+                  <div>
+                    <strong>{p.vendor || p.eventName}</strong>
+                    <p>Rainfall {p.rainfall}mm / Threshold {p.threshold}mm</p>
+                  </div>
+                  <Badge type={p.amount > 0 ? 'success' : 'default'}>{money(p.amount)}</Badge>
+                </div>
+              ))
+            )}
+          </Section>
+        </>
+      )}
+
+      {/* ── ClimateGuard：Oracle ── */}
       {tab === 'oracle' && (
         <Section title="Weather Oracle / Auto Payout" subtitle="MVP 階段用 mock oracle 模擬降雨資料，展示自動補償流程。">
           <div className="form-grid">
@@ -406,6 +629,7 @@ export default function App() {
         </Section>
       )}
 
+      {/* ── ClimateGuard：DAO ── */}
       {tab === 'dao' && (
         <Section title="DAO Governance" subtitle="DAO 成員可以投票調整風險池規則。">
           <div className="form-grid">

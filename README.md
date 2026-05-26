@@ -46,6 +46,7 @@ climateguard DAO/
 | 活動主辦方 | 較高 (佔池子主要資金) | 建立活動時一次性投入 |
 | 攤商 | 按方案繳費 | Basic NT$300 / Standard NT$500 |
 
+
 **Pool Health** = 可用資金 / 有效保障總額 × 100%
 - ≥ 120% → Healthy
 - 80–119% → Warning
