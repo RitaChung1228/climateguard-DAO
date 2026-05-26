@@ -1,46 +1,6 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 const money = (n) => `NT$${Number(n).toLocaleString()}`
-
-const plans = [
-  { id: 'basic', name: 'Basic Plan', contribution: 300, coverage: 800, desc: '適合小型攤商，提供基礎豪雨補償。' },
-  { id: 'standard', name: 'Standard Plan', contribution: 500, coverage: 1500, desc: '適合食物攤商或備貨成本較高的攤位。' }
-]
-
-const initialEvents = [
-  {
-    id: 1,
-    name: '週末文創市集',
-    location: 'Taipei',
-    date: '2026-06-10',
-    threshold: 200,
-    organizerContribution: 12000,
-    status: 'Active'
-  }
-]
-
-const initialPolicies = [
-  {
-    id: 1,
-    vendor: 'A01 咖啡攤',
-    eventId: 1,
-    plan: 'basic',
-    contribution: 300,
-    coverage: 800,
-    status: 'Active',
-    paidOut: 0
-  },
-  {
-    id: 2,
-    vendor: 'B08 手作甜點',
-    eventId: 1,
-    plan: 'standard',
-    contribution: 500,
-    coverage: 1500,
-    status: 'Active',
-    paidOut: 0
-  }
-]
 
 function StatCard({ label, value, note }) {
   return (
@@ -70,14 +30,23 @@ function Section({ title, subtitle, children }) {
 
 export default function App() {
   const [tab, setTab] = useState('dashboard')
-  const [events, setEvents] = useState(initialEvents)
-  const [policies, setPolicies] = useState(initialPolicies)
+  const [events, setEvents] = useState([])
+  const [policies, setPolicies] = useState([])
   const [payoutHistory, setPayoutHistory] = useState([])
+  const [plans, setPlans] = useState([])
+  const [proposals, setProposals] = useState([])
+  const [poolStats, setPoolStats] = useState({
+    poolBalance: 0,
+    totalActiveCoverage: 0,
+    poolHealth: 0,
+    poolHealthLabel: 'Healthy',
+    activeVendors: 0,
+    reserveRatio: 20
+  })
   const [rainfall, setRainfall] = useState(230)
   const [selectedEventId, setSelectedEventId] = useState(1)
-  const [reserveRatio, setReserveRatio] = useState(20)
-  const [proposalThreshold, setProposalThreshold] = useState(200)
-  const [proposalStatus, setProposalStatus] = useState('Draft')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   const [eventForm, setEventForm] = useState({
     name: '河濱週末市集',
@@ -93,117 +62,183 @@ export default function App() {
     plan: 'basic'
   })
 
+  const [proposalForm, setProposalForm] = useState({ threshold: 200 })
+
+  useEffect(() => {
+    fetchEvents()
+    fetchPolicies()
+    fetchPoolStats()
+    fetchPayouts()
+    fetchPlans()
+    fetchProposals()
+  }, [])
+
+  async function fetchEvents() {
+    const res = await fetch('/api/events')
+    const json = await res.json()
+    setEvents(json.data)
+    if (json.data.length > 0) setSelectedEventId(json.data[0].id)
+  }
+
+  async function fetchPolicies() {
+    const res = await fetch('/api/policies')
+    const json = await res.json()
+    setPolicies(json.data)
+  }
+
+  async function fetchPoolStats() {
+    const res = await fetch('/api/policies/pool')
+    const json = await res.json()
+    setPoolStats(json.data)
+  }
+
+  async function fetchPayouts() {
+    const res = await fetch('/api/oracle/payouts')
+    const json = await res.json()
+    setPayoutHistory(json.data)
+  }
+
+  async function fetchPlans() {
+    const res = await fetch('/api/policies/plans')
+    const json = await res.json()
+    setPlans(json.data)
+  }
+
+  async function fetchProposals() {
+    const res = await fetch('/api/dao/proposals')
+    const json = await res.json()
+    setProposals(json.data)
+  }
+
   const selectedEvent = events.find((e) => e.id === Number(selectedEventId)) || events[0]
-
-  const poolBalance = useMemo(() => {
-    const organizerTotal = events.reduce((sum, e) => sum + Number(e.organizerContribution), 0)
-    const vendorTotal = policies.reduce((sum, p) => sum + Number(p.contribution), 0)
-    const payoutTotal = payoutHistory.reduce((sum, p) => sum + Number(p.amount), 0)
-    return organizerTotal + vendorTotal - payoutTotal
-  }, [events, policies, payoutHistory])
-
-  const totalActiveCoverage = useMemo(() => {
-    return policies
-      .filter((p) => p.status === 'Active')
-      .reduce((sum, p) => sum + Number(p.coverage), 0)
-  }, [policies])
-
-  const poolHealth = totalActiveCoverage > 0
-    ? Math.round((poolBalance / totalActiveCoverage) * 100)
-    : 0
-
-  const poolHealthType = poolHealth >= 120 ? 'success' : poolHealth >= 80 ? 'warning' : 'danger'
-  const poolHealthLabel = poolHealth >= 120 ? 'Healthy' : poolHealth >= 80 ? 'Warning' : 'Underfunded'
-
   const eligiblePolicies = policies.filter(
     (p) => p.eventId === Number(selectedEventId) && p.status === 'Active'
   )
+  const poolHealthType =
+    poolStats.poolHealth >= 120 ? 'success' : poolStats.poolHealth >= 80 ? 'warning' : 'danger'
 
-  function createEvent() {
-    const newEvent = {
-      id: events.length + 1,
-      name: eventForm.name,
-      location: eventForm.location,
-      date: eventForm.date,
-      threshold: Number(eventForm.threshold),
-      organizerContribution: Number(eventForm.organizerContribution),
-      status: 'Active'
+  async function createEvent() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(eventForm)
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.message)
+      setEvents([...events, json.data])
+      setSelectedEventId(json.data.id)
+      setVendorForm({ ...vendorForm, eventId: json.data.id })
+      await fetchPoolStats()
+      setTab('dashboard')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
     }
-    setEvents([...events, newEvent])
-    setSelectedEventId(newEvent.id)
-    setVendorForm({ ...vendorForm, eventId: newEvent.id })
-    setTab('dashboard')
   }
 
-  function joinPlan() {
-    const plan = plans.find((p) => p.id === vendorForm.plan)
-    const newPolicy = {
-      id: policies.length + 1,
-      vendor: vendorForm.vendor,
-      eventId: Number(vendorForm.eventId),
-      plan: plan.id,
-      contribution: plan.contribution,
-      coverage: plan.coverage,
-      status: 'Active',
-      paidOut: 0
+  async function joinPlan() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(vendorForm)
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.message)
+      setPolicies([...policies, json.data])
+      await fetchPoolStats()
+      setTab('dashboard')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
     }
-    setPolicies([...policies, newPolicy])
-    setTab('dashboard')
   }
 
-  function triggerPayout() {
-    const threshold = Number(selectedEvent.threshold)
-    const isTriggered = Number(rainfall) >= threshold
-
-    if (!isTriggered) {
-      setPayoutHistory([
-        {
-          id: Date.now(),
-          eventName: selectedEvent.name,
-          vendor: '-',
-          rainfall: Number(rainfall),
-          threshold,
-          amount: 0,
-          status: 'Not triggered'
-        },
-        ...payoutHistory
-      ])
-      return
+  async function triggerPayout() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/oracle/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId: selectedEventId, mockRainfall: Number(rainfall) })
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.message)
+      await Promise.all([fetchPolicies(), fetchPayouts(), fetchPoolStats()])
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
     }
-
-    const totalRequired = eligiblePolicies.reduce((sum, p) => sum + Number(p.coverage), 0)
-    const maxAvailable = Math.max(poolBalance * (1 - reserveRatio / 100), 0)
-    const payoutRatio = totalRequired > maxAvailable ? maxAvailable / totalRequired : 1
-
-    const newPayouts = eligiblePolicies.map((policy) => ({
-      id: Date.now() + policy.id,
-      eventName: selectedEvent.name,
-      vendor: policy.vendor,
-      rainfall: Number(rainfall),
-      threshold,
-      amount: Math.floor(policy.coverage * payoutRatio),
-      status: payoutRatio >= 1 ? 'Full payout' : 'Proportional payout'
-    }))
-
-    setPayoutHistory([...newPayouts, ...payoutHistory])
-    setPolicies(
-      policies.map((policy) =>
-        policy.eventId === Number(selectedEventId) && policy.status === 'Active'
-          ? { ...policy, status: 'Paid', paidOut: Math.floor(policy.coverage * payoutRatio) }
-          : policy
-      )
-    )
   }
 
-  function executeProposal() {
-    setEvents(
-      events.map((event) =>
-        event.id === Number(selectedEventId)
-          ? { ...event, threshold: Number(proposalThreshold) }
-          : event
-      )
-    )
-    setProposalStatus('Executed')
+  async function createProposal() {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/dao/proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId: selectedEventId,
+          type: 'threshold',
+          description: `將 ${selectedEvent?.name} 的 rainfall threshold 調整為 ${proposalForm.threshold}mm`,
+          newValue: Number(proposalForm.threshold)
+        })
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.message)
+      await fetchProposals()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function voteYes(proposalId) {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/dao/proposals/${proposalId}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vote: 'yes' })
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.message)
+      await fetchProposals()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function executeProposal(proposalId) {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/dao/proposals/${proposalId}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.message)
+      await Promise.all([fetchProposals(), fetchEvents(), fetchPoolStats()])
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const tabs = [
@@ -233,23 +268,25 @@ export default function App() {
         ))}
       </nav>
 
+      {error && <div className="error-banner">{error}</div>}
+
       {tab === 'dashboard' && (
         <>
           <div className="grid four">
-            <StatCard label="Pool Balance" value={money(poolBalance)} note="目前 smart contract pool 餘額" />
-            <StatCard label="Active Coverage" value={money(totalActiveCoverage)} note="目前有效保障總額" />
-            <StatCard label="Pool Health" value={`${poolHealth}%`} note={poolHealthLabel} />
-            <StatCard label="Active Vendors" value={policies.filter((p) => p.status === 'Active').length} note="目前仍在保障中的攤商" />
+            <StatCard label="Pool Balance" value={money(poolStats.poolBalance)} note="目前 smart contract pool 餘額" />
+            <StatCard label="Active Coverage" value={money(poolStats.totalActiveCoverage)} note="目前有效保障總額" />
+            <StatCard label="Pool Health" value={`${poolStats.poolHealth}%`} note={poolStats.poolHealthLabel} />
+            <StatCard label="Active Vendors" value={poolStats.activeVendors} note="目前仍在保障中的攤商" />
           </div>
 
           <div className="grid three">
             <Section title="Pool Health Status" subtitle="用來判斷資金池是否足以支撐目前保障額度。">
               <div className="health-box">
-                <Badge type={poolHealthType}>{poolHealthLabel}</Badge>
-                <strong>{poolHealth}%</strong>
+                <Badge type={poolHealthType}>{poolStats.poolHealthLabel}</Badge>
+                <strong>{poolStats.poolHealth}%</strong>
               </div>
               <div className="progress">
-                <div style={{ width: `${Math.min(poolHealth, 160) / 1.6}%` }} />
+                <div style={{ width: `${Math.min(poolStats.poolHealth, 160) / 1.6}%` }} />
               </div>
               <p className="hint">
                 Pool Health Ratio = Available Pool Balance / Total Active Coverage。
@@ -297,7 +334,9 @@ export default function App() {
             <label>降雨觸發門檻 mm<input type="number" value={eventForm.threshold} onChange={(e) => setEventForm({ ...eventForm, threshold: e.target.value })} /></label>
             <label>主辦方 Contribution<input type="number" value={eventForm.organizerContribution} onChange={(e) => setEventForm({ ...eventForm, organizerContribution: e.target.value })} /></label>
           </div>
-          <button className="primary-btn" onClick={createEvent}>Create Event</button>
+          <button className="primary-btn" onClick={createEvent} disabled={loading}>
+            {loading ? 'Creating...' : 'Create Event'}
+          </button>
         </Section>
       )}
 
@@ -326,7 +365,9 @@ export default function App() {
             ))}
           </div>
 
-          <button className="primary-btn" onClick={joinPlan}>Join Protection Plan</button>
+          <button className="primary-btn" onClick={joinPlan} disabled={loading}>
+            {loading ? 'Joining...' : 'Join Protection Plan'}
+          </button>
         </Section>
       )}
 
@@ -359,27 +400,52 @@ export default function App() {
             )}
           </div>
 
-          <button className="primary-btn" onClick={triggerPayout}>Run Oracle & Trigger Payout</button>
+          <button className="primary-btn" onClick={triggerPayout} disabled={loading}>
+            {loading ? 'Processing...' : 'Run Oracle & Trigger Payout'}
+          </button>
         </Section>
       )}
 
       {tab === 'dao' && (
         <Section title="DAO Governance" subtitle="DAO 成員可以投票調整風險池規則。">
           <div className="form-grid">
-            <label>Proposal: 新降雨門檻 mm<input type="number" value={proposalThreshold} onChange={(e) => setProposalThreshold(e.target.value)} /></label>
-            <label>Reserve Ratio %<input type="number" value={reserveRatio} onChange={(e) => setReserveRatio(Number(e.target.value))} /></label>
+            <label>新降雨門檻 mm
+              <input type="number" value={proposalForm.threshold} onChange={(e) => setProposalForm({ ...proposalForm, threshold: e.target.value })} />
+            </label>
           </div>
+          <button className="secondary-btn" onClick={createProposal} disabled={loading}>
+            {loading ? 'Submitting...' : 'Submit Proposal'}
+          </button>
 
-          <div className="proposal">
-            <div>
-              <strong>Proposal #1</strong>
-              <p>將 {selectedEvent?.name} 的 rainfall threshold 調整為 {proposalThreshold}mm，並設定 reserve ratio 為 {reserveRatio}%。</p>
-            </div>
-            <Badge type={proposalStatus === 'Executed' ? 'success' : 'warning'}>{proposalStatus}</Badge>
-          </div>
-
-          <button className="secondary-btn" onClick={() => setProposalStatus('Passed')}>Vote Yes</button>
-          <button className="primary-btn" onClick={executeProposal}>Execute Proposal</button>
+          <h3 style={{ marginTop: '1.5rem' }}>Proposals</h3>
+          {proposals.length === 0 ? (
+            <p className="empty">目前沒有提案。</p>
+          ) : (
+            proposals.map((proposal) => (
+              <div className="proposal" key={proposal.id}>
+                <div>
+                  <strong>Proposal #{proposal.id}</strong>
+                  <p>{proposal.description}</p>
+                  <p>Yes: {proposal.votesYes} / No: {proposal.votesNo}</p>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <Badge type={proposal.status === 'Executed' ? 'success' : proposal.status === 'Passed' ? 'warning' : 'default'}>
+                    {proposal.status}
+                  </Badge>
+                  {proposal.status === 'Active' && (
+                    <button className="secondary-btn" onClick={() => voteYes(proposal.id)} disabled={loading}>
+                      Vote Yes
+                    </button>
+                  )}
+                  {proposal.status === 'Passed' && (
+                    <button className="primary-btn" onClick={() => executeProposal(proposal.id)} disabled={loading}>
+                      Execute
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </Section>
       )}
     </div>
