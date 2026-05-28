@@ -63,9 +63,21 @@ router.post('/proposals/:id/vote', (req, res) => {
 
   db.votes.push({ proposalId: proposal.id, voter: voter || 'anonymous', vote, votedAt: new Date().toISOString() })
 
-  // 簡單多數決：votes > 3 且 yes > no → Passed
-  if (proposal.votesYes + proposal.votesNo >= 3 && proposal.votesYes > proposal.votesNo) {
+  res.json({ success: true, data: proposal })
+})
+
+// POST /api/dao/proposals/:id/finalize - 結算投票（簡單多數決：yes > no → Passed）
+router.post('/proposals/:id/finalize', (req, res) => {
+  const proposal = db.proposals.find((p) => p.id === Number(req.params.id))
+  if (!proposal) return res.status(404).json({ success: false, message: 'Proposal not found' })
+  if (proposal.status !== 'Active') {
+    return res.status(400).json({ success: false, message: `提案狀態為 ${proposal.status}，無法結算` })
+  }
+
+  if (proposal.votesYes > proposal.votesNo) {
     proposal.status = 'Passed'
+  } else {
+    proposal.status = 'Rejected'
   }
 
   res.json({ success: true, data: proposal })

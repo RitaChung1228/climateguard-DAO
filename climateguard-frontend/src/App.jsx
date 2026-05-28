@@ -275,7 +275,7 @@ export default function App() {
     }
   }
 
-  async function voteYes(proposalId) {
+  async function castVote(proposalId, vote) {
     setLoading(true)
     setError(null)
     setSuccess(null)
@@ -283,12 +283,32 @@ export default function App() {
       const res = await fetch(`/api/dao/proposals/${proposalId}/vote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vote: 'yes' })
+        body: JSON.stringify({ vote })
       })
       const json = await res.json()
       if (!json.success) throw new Error(json.message)
       await fetchProposals()
-      showSuccess('投票成功！')
+      showSuccess(`投票成功！(${vote === 'yes' ? '贊成' : '反對'})`)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function finalizeVote(proposalId) {
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await fetch(`/api/dao/proposals/${proposalId}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.message)
+      await fetchProposals()
+      showSuccess(`提案結算完成：${json.data.status}`)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -657,9 +677,17 @@ export default function App() {
                     {proposal.status}
                   </Badge>
                   {proposal.status === 'Active' && (
-                    <button className="secondary-btn" onClick={() => voteYes(proposal.id)} disabled={loading}>
-                      Vote Yes
-                    </button>
+                    <>
+                      <button className="secondary-btn" onClick={() => castVote(proposal.id, 'yes')} disabled={loading}>
+                        Vote Yes
+                      </button>
+                      <button className="danger-btn" onClick={() => castVote(proposal.id, 'no')} disabled={loading}>
+                        Vote No
+                      </button>
+                      <button className="secondary-btn" onClick={() => finalizeVote(proposal.id)} disabled={loading}>
+                        Finalize
+                      </button>
+                    </>
                   )}
                   {proposal.status === 'Passed' && (
                     <button className="primary-btn" onClick={() => executeProposal(proposal.id)} disabled={loading}>
