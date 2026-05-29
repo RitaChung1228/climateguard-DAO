@@ -631,7 +631,7 @@ export default function App() {
                 {/* Plan selection */}
                 <div className="content-section">
                   <div className="content-section-head">
-                    <h2>🛡️ Choose a Protection Plan</h2>
+                    <h2>Choose a Protection Plan</h2>
                     <p>Your contribution enters the smart contract pool. Payouts trigger automatically when rainfall exceeds the threshold.</p>
                   </div>
                   <div className="grid two">
