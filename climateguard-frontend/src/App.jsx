@@ -372,8 +372,8 @@ export default function App() {
                 <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: '#4a6fa5' }} />
                 <Tooltip formatter={(v) => money(v)} contentStyle={{ borderRadius: 10, fontSize: 13 }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="poolBalance" name="Pool Balance" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="coverage" name="Total Coverage" fill="#93c5fd" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="poolBalance" name="Pool Balance" fill="#38bdf8" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="coverage" name="Total Coverage" fill="#f472b6" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
