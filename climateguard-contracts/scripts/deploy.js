@@ -26,12 +26,10 @@ async function main() {
   await pool.setDAO(await dao.getAddress())
   console.log("DAO wired to Pool ✓")
 
-  // 5. 給各測試帳號 mint mUSDC（代表 NT$ 測試金額）
+  // 5. 給部署者 mint mUSDC
   const MINT = ethers.parseEther("100000") // 100,000 mUSDC
-  for (const [signer, label] of [[deployer, "deployer"], [alice, "alice"], [bob, "bob"], [carol, "carol"]]) {
-    await usdc.mint(signer.address, MINT)
-    console.log(`Minted 100,000 mUSDC → ${label} (${signer.address})`)
-  }
+  await usdc.mint(deployer.address, MINT)
+  console.log(`Minted 100,000 mUSDC → deployer (${deployer.address})`)
 
   console.log("\n─────── Deployment Summary ───────")
   console.log("MockUSDC:        ", await usdc.getAddress())

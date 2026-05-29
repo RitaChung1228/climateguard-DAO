@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
+import { ethers } from 'ethers'
+import { ADDRESSES, CHAIN_ID } from './contracts/addresses.js'
+import { getContracts, loadChainData, readProvider } from './contracts/contracts.js'
 
 const money = (n) => `NT$${Number(n).toLocaleString()}`
 
@@ -82,6 +85,8 @@ export default function App() {
   const [error, setError] = useState(null)
   const [account, setAccount] = useState(null)
   const [success, setSuccess] = useState(null)
+  const [signer, setSigner] = useState(null)
+  const [contracts, setContracts] = useState(null)
 
   const [eventForm, setEventForm] = useState({
     name: '河濱週末市集', location: 'Taipei',
@@ -95,12 +100,17 @@ export default function App() {
   useEffect(() => {
     async function init() {
       try {
-        await Promise.all([
-          fetchEvents(), fetchPolicies(), fetchPoolStats(),
-          fetchPayouts(), fetchPlans(), fetchProposals()
-        ])
-      } catch {
-        setError('Failed to load data. Please check if the backend service is running.')
+        // 用 read-only provider 讀取鏈上資料（不需要 MetaMask）
+        const { pool, dao } = getContracts(readProvider)
+        const { eventsData, policiesData, payoutsData, proposalsData } = await loadChainData(pool, dao)
+        setEvents(eventsData)
+        setPolicies(policiesData)
+        setPayoutHistory(payoutsData)
+        setProposals(proposalsData)
+        if (eventsData.length > 0) setSelectedEventId(eventsData[0].id)
+      } catch (e) {
+        console.error('Chain read failed:', e)
+        setError('Failed to load on-chain data. Check your network connection.')
       } finally {
         setInitLoading(false)
       }
@@ -108,30 +118,14 @@ export default function App() {
     init()
   }, [])
 
-  async function fetchEvents() {
-    const res = await fetch('/api/events'); const json = await res.json()
-    setEvents(json.data)
-    if (json.data.length > 0) setSelectedEventId(json.data[0].id)
-  }
-  async function fetchPolicies() {
-    const res = await fetch('/api/policies'); const json = await res.json()
-    setPolicies(json.data)
-  }
-  async function fetchPoolStats() {
-    const res = await fetch('/api/policies/pool'); const json = await res.json()
-    setPoolStats(json.data)
-  }
-  async function fetchPayouts() {
-    const res = await fetch('/api/oracle/payouts'); const json = await res.json()
-    setPayoutHistory(json.data)
-  }
-  async function fetchPlans() {
-    const res = await fetch('/api/policies/plans'); const json = await res.json()
-    setPlans(json.data)
-  }
-  async function fetchProposals() {
-    const res = await fetch('/api/dao/proposals'); const json = await res.json()
-    setProposals(json.data)
+  async function refreshChainData(c) {
+    const src = c || contracts
+    if (!src) return
+    const { eventsData, policiesData, payoutsData, proposalsData } = await loadChainData(src.pool, src.dao)
+    setEvents(eventsData)
+    setPolicies(policiesData)
+    setPayoutHistory(payoutsData)
+    setProposals(proposalsData)
   }
 
   function showSuccess(msg) {
@@ -159,8 +153,29 @@ export default function App() {
       return
     }
     try {
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
-      setAccount(accounts[0])
+      // 切換到 Sepolia（如果還不在的話）
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: '0x' + CHAIN_ID.toString(16) }],
+        })
+      } catch (switchErr) {
+        if (switchErr.code === 4902) {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{ chainId: '0xaa36a7', chainName: 'Sepolia', rpcUrls: ['https://ethereum-sepolia-rpc.publicnode.com'], nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 } }],
+          })
+        }
+      }
+
+      const provider = new ethers.BrowserProvider(window.ethereum)
+      const s = await provider.getSigner()
+      const addr = await s.getAddress()
+      const c = getContracts(s)
+
+      setSigner(s)
+      setContracts(c)
+      setAccount(addr)
     } catch {
       setError('Wallet connection rejected.')
     }
@@ -170,112 +185,108 @@ export default function App() {
     const event = events.find((e) => e.id === eventId)
     if (!event) return null
     const ep = policies.filter((p) => p.eventId === eventId)
-    const poolBalance = Number(event.organizerContribution)
-      + ep.reduce((s, p) => s + Number(p.contribution), 0)
-      - ep.reduce((s, p) => s + Number(p.paidOut), 0)
-    const totalActiveCoverage = ep.filter((p) => p.status === 'Active')
-      .reduce((s, p) => s + Number(p.coverage), 0)
+    // 直接用鏈上的 poolBalance / totalActiveCoverage
+    const poolBalance = Number(event.poolBalance) || 0
+    const totalActiveCoverage = Number(event.totalActiveCoverage) || 0
     const poolHealth = totalActiveCoverage > 0
-      ? Math.round((poolBalance / totalActiveCoverage) * 100) : 0
+      ? Math.round((poolBalance / totalActiveCoverage) * 100) : 200
     const poolHealthLabel = poolHealth >= 120 ? 'Healthy' : poolHealth >= 80 ? 'Warning' : 'Underfunded'
     const poolHealthType = poolHealth >= 120 ? 'success' : poolHealth >= 80 ? 'warning' : 'danger'
     const activeVendors = ep.filter((p) => p.status === 'Active').length
     return { poolBalance, totalActiveCoverage, poolHealth, poolHealthLabel, poolHealthType, activeVendors }
   }
 
+  function requireWallet() {
+    if (!contracts) { setError('Please connect your wallet first.'); return false }
+    return true
+  }
+
   async function createEvent() {
+    if (!requireWallet()) return
     setLoading(true); setError(null); setSuccess(null)
     try {
-      const res = await fetch('/api/events', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(eventForm)
-      })
-      const json = await res.json()
-      if (!json.success) throw new Error(json.message)
-      setEvents([...events, json.data])
-      setSelectedEventId(json.data.id)
-      setVendorForm({ ...vendorForm, eventId: json.data.id })
-      await fetchPoolStats()
-      showSuccess(`Event "${json.data.name}" created successfully!`)
-    } catch (e) { setError(e.message) }
+      const amount = ethers.parseEther(String(eventForm.organizerContribution))
+      setSuccess('Step 1/2: Approving USDC...')
+      const approveTx = await contracts.usdc.approve(ADDRESSES.ClimateGuardPool, amount)
+      await approveTx.wait()
+      setSuccess('Step 2/2: Creating event on-chain...')
+      const tx = await contracts.pool.createEvent(
+        eventForm.name, eventForm.location, eventForm.date,
+        Number(eventForm.threshold), amount
+      )
+      await tx.wait()
+      await refreshChainData()
+      showSuccess(`Event "${eventForm.name}" created successfully!`)
+    } catch (e) { setError(e.reason || e.message) }
     finally { setLoading(false) }
   }
 
   async function joinPlan() {
+    if (!requireWallet()) return
     setLoading(true); setError(null); setSuccess(null)
     try {
-      const res = await fetch('/api/policies', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(vendorForm)
-      })
-      const json = await res.json()
-      if (!json.success) throw new Error(json.message)
-      setPolicies([...policies, json.data])
-      await fetchPoolStats()
-      showSuccess(`${json.data.vendor} successfully joined the ${json.data.plan} plan!`)
-    } catch (e) { setError(e.message) }
+      const planAmounts = { basic: '300', standard: '500' }
+      const amount = ethers.parseEther(planAmounts[vendorForm.plan] || '300')
+      setSuccess('Step 1/2: Approving USDC...')
+      const approveTx = await contracts.usdc.approve(ADDRESSES.ClimateGuardPool, amount)
+      await approveTx.wait()
+      setSuccess('Step 2/2: Joining plan on-chain...')
+      const tx = await contracts.pool.joinPlan(vendorForm.eventId, vendorForm.vendor, vendorForm.plan)
+      await tx.wait()
+      await refreshChainData()
+      showSuccess(`${vendorForm.vendor} successfully joined the ${vendorForm.plan} plan!`)
+    } catch (e) { setError(e.reason || e.message) }
     finally { setLoading(false) }
   }
 
   async function triggerPayout() {
+    if (!requireWallet()) return
     setLoading(true); setError(null); setSuccess(null)
     try {
-      const res = await fetch('/api/oracle/trigger', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId: selectedEventId, mockRainfall: Number(rainfall) })
-      })
-      const json = await res.json()
-      if (!json.success) throw new Error(json.message)
-      await Promise.all([fetchPolicies(), fetchPayouts(), fetchPoolStats()])
+      const tx = await contracts.pool.triggerPayout(selectedEventId, Number(rainfall))
+      await tx.wait()
+      await refreshChainData()
       showSuccess('Oracle executed successfully!')
-    } catch (e) { setError(e.message) }
+    } catch (e) { setError(e.reason || e.message) }
     finally { setLoading(false) }
   }
 
   async function createProposal() {
+    if (!requireWallet()) return
     setLoading(true); setError(null); setSuccess(null)
     try {
       const selectedEvent = events.find((e) => e.id === Number(selectedEventId))
-      const res = await fetch('/api/dao/proposals', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventId: selectedEventId, type: 'threshold',
-          description: `Adjust rainfall threshold for "${selectedEvent?.name}" to ${proposalForm.threshold}mm`,
-          newValue: Number(proposalForm.threshold)
-        })
-      })
-      const json = await res.json()
-      if (!json.success) throw new Error(json.message)
-      await fetchProposals()
+      const tx = await contracts.dao.createProposal(
+        selectedEventId, 0,
+        `Adjust rainfall threshold for "${selectedEvent?.name}" to ${proposalForm.threshold}mm`,
+        Number(proposalForm.threshold)
+      )
+      await tx.wait()
+      await refreshChainData()
       showSuccess('Proposal submitted!')
-    } catch (e) { setError(e.message) }
+    } catch (e) { setError(e.reason || e.message) }
     finally { setLoading(false) }
   }
 
   async function voteYes(proposalId) {
+    if (!requireWallet()) return
     setLoading(true); setError(null); setSuccess(null)
     try {
-      const res = await fetch(`/api/dao/proposals/${proposalId}/vote`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vote: 'yes' })
-      })
-      const json = await res.json()
-      if (!json.success) throw new Error(json.message)
-      await fetchProposals()
+      const tx = await contracts.dao.vote(proposalId, true)
+      await tx.wait()
+      await refreshChainData()
       showSuccess('Vote submitted!')
-    } catch (e) { setError(e.message) }
+    } catch (e) { setError(e.reason || e.message) }
     finally { setLoading(false) }
   }
 
   async function executeProposal(proposalId) {
+    if (!requireWallet()) return
     setLoading(true); setError(null); setSuccess(null)
     try {
-      const res = await fetch(`/api/dao/proposals/${proposalId}/execute`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }
-      })
-      const json = await res.json()
-      if (!json.success) throw new Error(json.message)
-      await Promise.all([fetchProposals(), fetchEvents(), fetchPoolStats()])
+      const tx = await contracts.dao.executeProposal(proposalId)
+      await tx.wait()
+      await refreshChainData()
       showSuccess('Proposal executed successfully!')
     } catch (e) { setError(e.message) }
     finally { setLoading(false) }

@@ -1,0 +1,115 @@
+{
+  "_format": "hh-sol-cache-2",
+  "files": {
+    "/Users/mac/climateguard/climateguard-DAO/climateguard-contracts/contracts/ClimateGuardDAO.sol": {
+      "lastModificationDate": 1780027148492,
+      "contentHash": "7a3409a3a8c54b39316622b251a889c3",
+      "sourceName": "contracts/ClimateGuardDAO.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "evmVersion": "paris",
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "ClimateGuardDAO",
+        "IClimateGuardPool"
+      ]
+    },
+    "/Users/mac/climateguard/climateguard-DAO/climateguard-contracts/contracts/ClimateGuardPool.sol": {
+      "lastModificationDate": 1780027148491,
+      "contentHash": "24a65e7aa57195033887286f4916de8a",
+      "sourceName": "contracts/ClimateGuardPool.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "evmVersion": "paris",
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "ClimateGuardPool",
+        "IERC20"
+      ]
+    },
+    "/Users/mac/climateguard/climateguard-DAO/climateguard-contracts/contracts/MockUSDC.sol": {
+      "lastModificationDate": 1780027148491,
+      "contentHash": "8df1609bfe3f74272dfeeb263cb33ceb",
+      "sourceName": "contracts/MockUSDC.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "evmVersion": "paris",
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "MockUSDC"
+      ]
+    }
+  }
+}

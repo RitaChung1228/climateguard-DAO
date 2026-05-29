@@ -6,6 +6,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "ethers": "^6.16.0",
     "react": "latest",
     "react-dom": "latest",
     "recharts": "^3.8.1",
