@@ -489,8 +489,8 @@ button, input, select {
 }
 
 .hiw-arrow {
-  font-size: 28px;
-  color: #c7d9f5;
+  font-size: 42px;
+  color: #2563eb;
   flex-shrink: 0;
   font-weight: 900;
   line-height: 1;
