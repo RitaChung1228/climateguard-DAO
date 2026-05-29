@@ -602,7 +602,7 @@ export default function App() {
                     : (
                       <div className={`grid${events.length >= 3 ? ' three' : ' two'}`}>
                         {events.map((event, i) => {
-                          const marketImgs = ['/market-1.png', '/market-2.png', '/market-3.png']
+                          const marketImgs = ['/market-1.png', '/market-2.png', '/market-3.png', '/market-4.png']
                           const img = marketImgs[i % marketImgs.length]
                           return (
                             <div
