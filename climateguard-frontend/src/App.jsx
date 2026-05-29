@@ -243,19 +243,45 @@ export default function App() {
     finally { setLoading(false) }
   }
 
-  async function voteYes(proposalId) {
-    setLoading(true); setError(null); setSuccess(null)
+  async function castVote(proposalId, vote) {
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
     try {
       const res = await fetch(`/api/dao/proposals/${proposalId}/vote`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vote: 'yes' })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vote })
       })
       const json = await res.json()
       if (!json.success) throw new Error(json.message)
       await fetchProposals()
-      showSuccess('投票成功！')
-    } catch (e) { setError(e.message) }
-    finally { setLoading(false) }
+      showSuccess(`投票成功！(${vote === 'yes' ? '贊成' : '反對'})`)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function finalizeVote(proposalId) {
+    setLoading(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await fetch(`/api/dao/proposals/${proposalId}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.message)
+      await fetchProposals()
+      showSuccess(`提案結算完成：${json.data.status}`)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function executeProposal(proposalId) {
@@ -593,7 +619,6 @@ export default function App() {
                 <div className="info-box">
                   <span>Current threshold</span>
                   <strong>{selectedEvent?.threshold || 0}mm</strong>
-                </div>
               </div>
               <h3 style={{ color: '#0c1e44' }}>Eligible Vendors</h3>
               <div className="grid two">
