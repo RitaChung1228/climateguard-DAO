@@ -672,7 +672,7 @@ export default function App() {
             {tab === 'my-policies' && (
               <div className="content-section">
                 <div className="content-section-head">
-                  <h2>📄 My Policies</h2>
+                  <h2>My Policies</h2>
                   <p>View your active coverage and payout history.</p>
                 </div>
                 {policies.length === 0
